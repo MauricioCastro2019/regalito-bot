@@ -66,33 +66,29 @@ async function sendWhatsAppMessage(to, text) {
 app.post("/webhook", async (req, res) => {
   console.log("📩 POST Webhook:", JSON.stringify(req.body, null, 2));
 
-  // Meta solo necesita un 200 rápido para no reenviar el evento
+  // Meta necesita 200 rápido
   res.sendStatus(200);
 
   try {
     const body = req.body;
 
-    if (body.object !== "whatsapp_business_account") {
-      return;
-    }
+    if (body.object !== "whatsapp_business_account") return;
 
     const entry = body.entry?.[0];
     const change = entry?.changes?.[0];
     const message = change?.value?.messages?.[0];
 
-    if (!message) {
-      return;
-    }
+    if (!message) return;
 
-    const from = message.from; // número del usuario (con lada)
+    const from = message.from; // número del usuario
     const type = message.type;
 
-    // Solo manejamos mensajes de texto por ahora
+    // Solo texto por ahora
     if (type === "text") {
       const text = message.text.body;
       console.log(`💬 Mensaje de ${from}: ${text}`);
 
-      // 👉 Aquí empieza la "inteligencia" del bot
+      // Respuesta básica
       let reply = "Hola, soy el bot Regalito 🤖🎁";
 
       if (/hola|buenas/i.test(text)) {
@@ -102,7 +98,7 @@ app.post("/webhook", async (req, res) => {
         reply = "De nada, MauBot te ama 💚";
       } else {
         reply =
-          "Recibí tu mensaje 🤓. Muy pronto voy a aprender a sugerirte regalos según tu presupuesto y la persona. Por ahora, dime: ¿para quién es el regalo? (pareja, amigo, familia…)";
+          "Recibí tu mensaje 🤓. Pronto podré sugerirte regalos. Por ahora dime: ¿para quién es el regalo? (pareja, amigo, familia…)";
       }
 
       await sendWhatsAppMessage(from, reply);
@@ -116,4 +112,5 @@ app.post("/webhook", async (req, res) => {
 // 4️⃣  INICIAR SERVIDOR
 // =====================================================
 app.listen(PORT, () => {
-  console.log(`�
+  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+});
