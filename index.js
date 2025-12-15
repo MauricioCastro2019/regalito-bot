@@ -52,14 +52,23 @@ function normalizeText(t = "") {
 
 function isYes(text) {
   const t = normalizeText(text);
-  return ["si", "sí", "simon", "simón", "va", "dale", "ok", "yes", "jalo", "jalo"].some(
+  return ["si", "sí", "simon", "simón", "va", "dale", "ok", "yes", "jalo", "jaja si", "arre"].some(
     (w) => t.includes(normalizeText(w))
   );
 }
 
 function isNo(text) {
   const t = normalizeText(text);
-  return ["no", "nel", "nelson", "nop", "nope"].some((w) => t.includes(normalizeText(w)));
+  return ["no", "nel", "nelson", "nop", "nope", "nono", "para nada"].some((w) =>
+    t.includes(normalizeText(w))
+  );
+}
+
+function looksLikeSelf(textRaw) {
+  const t = normalizeText(textRaw);
+  return ["yo", "mi", "para mi", "para mí", "mi mismo", "yo mismo", "mismito", "a mi"].some((p) =>
+    t.includes(normalizeText(p))
+  );
 }
 
 // =====================================================
@@ -120,8 +129,6 @@ app.post("/webhook", async (req, res) => {
 
   try {
     const body = req.body;
-
-    // Log resumido (evita spam enorme)
     console.log("📩 POST Webhook recibido");
 
     if (body.object !== "whatsapp_business_account") return;
@@ -147,22 +154,33 @@ app.post("/webhook", async (req, res) => {
 
     const state = getState(from);
 
-    // ✅ Si el usuario pone "reiniciar" en cualquier momento
+    // ✅ Comandos rápidos
     if (text.includes("reiniciar") || text.includes("reset")) {
       setStep(from, "START");
       await sendWhatsAppMessage(from, "Listo 😄 Reiniciamos. Pon “hola” y arrancamos de nuevo 🎁");
       return;
     }
 
+    if (text === "hola" || text.includes("buenas") || text.includes("hey")) {
+      // Si están en medio de algo, no los mandes a START a fuerza, pero sí ofréceles.
+      if (state.step !== "START") {
+        await sendWhatsAppMessage(
+          from,
+          "Qué onda 😄 Si quieres reiniciar pon *reiniciar*.\nSi no, dime lo que traes y seguimos 👀"
+        );
+        return;
+      }
+    }
+
     // =====================================================
-    // 🎁 FLUJO MVP CON ESTADO (LO QUE TE FALTABA)
+    // 🎁 FLUJO MVP CON ESTADO
     // =====================================================
 
     // Paso START: primera interacción
     if (state.step === "START") {
       await sendWhatsAppMessage(
         from,
-        "Qué onda 👋 soy Regalito Bot 🎁\nSoy tu compa para ayudarte a encontrar el regalo ideal.\n\n¿Quieres encontrar tu regalo ideal? 😄\n👉 Sí / No"
+        "Qué onda 👋 soy *Regalito Bot* 🎁\nSoy tu compa para ayudarte a encontrar el regalo ideal.\n\n¿Quieres encontrar *tu* regalo ideal? 😄\n👉 Sí / No"
       );
       setStep(from, "WAITING_SELF_DECISION");
       return;
@@ -173,7 +191,7 @@ app.post("/webhook", async (req, res) => {
       if (isYes(text)) {
         await sendWhatsAppMessage(
           from,
-          "Va 😎 Entonces este primer regalo es para ti.\n\n¿Cómo te gustaría sentir con ese regalo? 👀\n(apapachado, sorprendido, motivado, consentido…)"
+          "Va 😎 Entonces este primer regalo es para ti.\n\n¿Cómo te gustaría *sentirte* con ese regalo? 👀\n(apapachado, sorprendido, motivado, consentido...)"
         );
         setStep(from, "ASK_FEELING");
         return;
@@ -206,7 +224,7 @@ app.post("/webhook", async (req, res) => {
       if (isNo(text)) {
         await sendWhatsAppMessage(
           from,
-          "Va 😄 Cuando se te antoje, aquí ando.\nPon “hola” y arrancamos 🎁"
+          "Va 😄 Cuando se te antoje, aquí ando.\nPon *hola* y arrancamos 🎁"
         );
         setStep(from, "START");
         return;
@@ -228,7 +246,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    // Presupuesto para sí mismo (entrega recomendación placeholder)
+    // Presupuesto para sí mismo (entrega recomendación + pregunta para afinar)
     if (state.step === "ASK_BUDGET_SELF") {
       updateData(from, { budget: rawText });
 
@@ -238,16 +256,25 @@ app.post("/webhook", async (req, res) => {
 
       await sendWhatsAppMessage(
         from,
-        `Va 🔥\nMe dijiste que quieres sentirte: *${feeling}*.\nY tu presupuesto: *${budget}*.\n\n🎁 Idea rápida (modo compa-experto):\nUn detalle que te apapache hoy: tu antojo favorito + algo para tu ritual (vela, té/café, libreta o playlist) 😌\n\nEste regalo dice: *me cuido y me celebro*.\n\n¿Quieres otra idea? 👀 (sí/no)`
+        `Va 🔥\nMe dijiste que quieres sentirte: *${feeling}*.\nY tu presupuesto: *${budget}*.\n\n🎁 Idea rápida (modo compa-experto):\nUn detalle que te apapache hoy: tu antojo favorito + algo para tu ritual (vela, té/café, libreta o playlist) 😌\n\nEste regalo dice: *me cuido y me celebro*.\n\n¿Quieres que lo afine con tus gustos (música/series/hobbies)? 👀 (sí/no)`
       );
 
-      // Puedes mandar a un paso POST_RECO si quieres seguir, por ahora reiniciamos.
-      setStep(from, "START");
+      setStep(from, "POST_RECO_SELF");
       return;
     }
 
     // Captura "para quién" (regalo a otro)
     if (state.step === "ASK_FOR_WHO") {
+      // 👇 si el usuario pone "yo/mi mismo", lo regresamos al flujo personal
+      if (looksLikeSelf(rawText)) {
+        await sendWhatsAppMessage(
+          from,
+          "Jajaja va 😄 entonces volvemos contigo.\n\n¿Cómo te gustaría *sentirte* con ese regalo? 👀"
+        );
+        setStep(from, "ASK_FEELING");
+        return;
+      }
+
       updateData(from, { who: rawText });
 
       await sendWhatsAppMessage(
@@ -270,7 +297,7 @@ app.post("/webhook", async (req, res) => {
       return;
     }
 
-    // Presupuesto para otro (entrega recomendación placeholder)
+    // Presupuesto para otro (entrega recomendación + pregunta para afinar)
     if (state.step === "ASK_BUDGET_OTHER") {
       updateData(from, { budget: rawText });
 
@@ -281,7 +308,89 @@ app.post("/webhook", async (req, res) => {
 
       await sendWhatsAppMessage(
         from,
-        `Ok 😎\nPara: *${who}*\nMotivo: *${reason}*\nPresupuesto: *${budget}*\n\n🎁 Idea rápida:\nAlgo que diga “pensé en ti”: un detalle personalizado (nota escrita, foto, llaverito o taza) + un gusto de esa persona (snack, cafecito, algo que use diario).\n\nSi me dices qué le gusta (música/series/hobbies), te lo afino y le atinamos más 👀`
+        `Ok 😎\nPara: *${who}*\nMotivo: *${reason}*\nPresupuesto: *${budget}*\n\n🎁 Idea rápida:\nAlgo que diga “pensé en ti”: un detalle personalizado (nota escrita, foto, llaverito o taza) + un gusto de esa persona (snack, cafecito, algo que use diario).\n\n¿Quieres que lo afine con gustos (música/series/hobbies)? 👀 (sí/no)`
+      );
+
+      setStep(from, "POST_RECO_OTHER");
+      return;
+    }
+
+    // ===== POST RECO (SELF) =====
+    if (state.step === "POST_RECO_SELF") {
+      if (isYes(text)) {
+        await sendWhatsAppMessage(
+          from,
+          "Va 👀 Dime tus gustos en una frase.\nEj: “me gusta Bunbury y el café”, “amo el gym”, “soy gamer”, etc."
+        );
+        setStep(from, "ASK_TASTE_SELF");
+        return;
+      }
+
+      if (isNo(text)) {
+        await sendWhatsAppMessage(
+          from,
+          "Va 😄 ¿Quieres ahora buscar un regalo para alguien más? 🎁\n👉 Sí / No"
+        );
+        setStep(from, "WAITING_OTHER_DECISION");
+        return;
+      }
+
+      await sendWhatsAppMessage(from, "Dime: 👉 Sí / No 😄");
+      return;
+    }
+
+    if (state.step === "ASK_TASTE_SELF") {
+      updateData(from, { taste: rawText });
+
+      const s = getState(from);
+      const taste = s.data.taste || "tu estilo";
+      const feeling = s.data.feeling || "bien";
+
+      await sendWhatsAppMessage(
+        from,
+        `Ufff 😎 con eso ya puedo afinarla.\n\n🎁 Idea más personalizada (para sentirte *${feeling}*):\nSi te late *${taste}*, arma un mini-kit:\n- algo relacionado (merch/poster/libro/playlist)\n- una experiencia (cine/concierto/visitar un lugar que te inspire)\n- un detalle diario (llavero, libreta, termo)\n\n¿Quieres otra opción? 👀 (sí/no)`
+      );
+
+      // Por ahora reiniciamos.
+      setStep(from, "START");
+      return;
+    }
+
+    // ===== POST RECO (OTHER) =====
+    if (state.step === "POST_RECO_OTHER") {
+      if (isYes(text)) {
+        await sendWhatsAppMessage(
+          from,
+          "Va 👀 ¿Qué le gusta a esa persona? (música/series/hobbies/estilo). Dímelo en una frase."
+        );
+        setStep(from, "ASK_TASTE_OTHER");
+        return;
+      }
+
+      if (isNo(text)) {
+        await sendWhatsAppMessage(
+          from,
+          "Va 😄 Si luego ocupas otra idea, aquí ando. Pon *hola* y arrancamos 🎁"
+        );
+        setStep(from, "START");
+        return;
+      }
+
+      await sendWhatsAppMessage(from, "Dime: 👉 Sí / No 😄");
+      return;
+    }
+
+    if (state.step === "ASK_TASTE_OTHER") {
+      updateData(from, { taste: rawText });
+
+      const s = getState(from);
+      const who = s.data.who || "esa persona";
+      const taste = s.data.taste || "sus gustos";
+      const budget = s.data.budget || "tu presupuesto";
+
+      await sendWhatsAppMessage(
+        from,
+        `Ok 😎 para *${who}* (presupuesto: *${budget}*) y con gusto en *${taste}*:\n\n🎁 Idea más fina:\nUn detalle personalizado (nota/foto) + algo alineado a *${taste}* (merch, libro, accesorio, print) + un extra de experiencia (cafecito, cine, plan juntos).\n\n¿Quieres otra opción? 👀 (sí/no)`
       );
 
       setStep(from, "START");
@@ -289,7 +398,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     // Fallback
-    await sendWhatsAppMessage(from, "Me perdí tantito 🙈 Pon “hola” y reiniciamos chido 😄");
+    await sendWhatsAppMessage(from, "Me perdí tantito 🙈 Pon *hola* y reiniciamos chido 😄");
     setStep(from, "START");
   } catch (err) {
     console.error("⚠️ Error procesando webhook:", err);
